@@ -44,6 +44,7 @@ async function run() {
                 email: data.email,
                 photoURL: data.photoURL,
                 dateOfBirth: data.dateOfBirth,
+
                 role: "employee",
                 status: "unaffiliated",
                 createdAt: new Date()
@@ -53,6 +54,38 @@ async function run() {
 
             res.send({ success: true, user: result });
         });
+
+
+        // Create HR Account
+        app.post("/register/hr", async (req, res) => {
+            const data = req.body;
+
+            const emailExists = await userCollection.findOne({ email: data.email });
+            if (emailExists) {
+                return res.send({ success: false, message: "Email already exists" });
+            }
+
+            const hrUser = {
+                name: data.name,
+                email: data.email,
+                photoURL: data.photoURL,
+                companyName: data.companyName,
+                companyLogo: data.companyLogo,
+                dateOfBirth: data.dateOfBirth,
+
+                role: "hr",
+                packageLimit: 5,
+                currentEmployees: 0,
+                subscription: "basic",
+                createdAt: new Date()
+            };
+
+            const result = await userCollection.insertOne(hrUser);
+
+            res.send({ success: true, user: result });
+        });
+
+
 
         // Send a ping to confirm a successful connection
         await client.db("admin").command({ ping: 1 });
