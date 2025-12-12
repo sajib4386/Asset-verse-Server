@@ -29,6 +29,7 @@ async function run() {
 
         const db = client.db('asset_verse_db');
         const userCollection = db.collection('users')
+        const assetCollection = db.collection('assets')
 
         // Create Employee Account
         app.post("/register/employee", async (req, res) => {
@@ -94,7 +95,35 @@ async function run() {
             res.send({ role: user?.role || 'user' })
         })
 
-        
+
+        // HR Related APIs
+
+        // Add Asset
+        app.post("/assets/add", async (req, res) => {
+            const data = req.body;
+
+            // Validate HR
+            const hr = await userCollection.findOne({ email: data.hrEmail, role: "hr" });
+            if (!hr) {
+                return res.send({ success: false, message: "Only HR can add assets!" });
+            }
+
+            const newAsset = {
+                productName: data.productName,
+                productImage: data.productImage, 
+                productType: data.productType,   
+                productQuantity: Number(data.productQuantity),
+                availableQuantity: Number(data.productQuantity),
+
+                createdAt: new Date(),
+                hrEmail: hr.email,
+                companyName: hr.companyName
+            };
+
+            const result = await assetCollection.insertOne(newAsset);
+
+            res.send({ success: true, asset: result });
+        });
 
 
         // Send a ping to confirm a successful connection
