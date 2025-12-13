@@ -31,6 +31,8 @@ async function run() {
         const userCollection = db.collection('users')
         const assetCollection = db.collection('assets')
         const requestCollection = db.collection("requests");
+        const assignedAssetCollection = db.collection("assignedAssets");
+        const affiliationCollection = db.collection("employeeAffiliations");
 
         // Create Employee Account
         app.post("/register/employee", async (req, res) => {
@@ -96,6 +98,8 @@ async function run() {
             res.send({ role: user?.role || 'user' })
         })
 
+
+
         // HR Related APIs
 
         // Add Asset
@@ -117,7 +121,8 @@ async function run() {
 
                 createdAt: new Date(),
                 hrEmail: hr.email,
-                companyName: hr.companyName
+                companyName: hr.companyName,
+                companyLogo: hr.companyLogo
             };
 
             const result = await assetCollection.insertOne(newAsset);
@@ -188,6 +193,156 @@ async function run() {
         });
 
 
+
+        // API For HR Request Page
+        // All Requests API
+        app.get("/requests/hr", async (req, res) => {
+            const { hrEmail } = req.query;
+
+            const result = await requestCollection
+                .find({ hrEmail })
+                .sort({ requestDate: -1 })
+                .toArray();
+
+            res.send(result);
+        });
+
+
+        // Approve Request API
+        app.patch("/requests/approve/:id", async (req, res) => {
+            const id = req.params.id;
+
+            // Find Request
+            const requestQuery = { _id: new ObjectId(id) };
+            const requestResult = await requestCollection.findOne(requestQuery);
+
+            if (!requestResult || requestResult.requestStatus !== "pending") {
+                return res.send({ success: false, message: "Invalid request" });
+            }
+
+            // Asset check
+            const assetQuery = { _id: new ObjectId(requestResult.assetId) };
+            const assetResult = await assetCollection.findOne(assetQuery);
+
+            if (!assetResult || assetResult.availableQuantity < 1) {
+                return res.send({ success: false, message: "Asset not available" });
+            }
+
+            // Asset Quantity Reduce
+            const assetUpdateDoc = { $inc: { availableQuantity: -1 } };
+            const assetUpdateResult = await assetCollection.updateOne(assetQuery, assetUpdateDoc);
+
+
+            // Employee Assign
+            const assignedAssetData = {
+                assetId: assetResult._id,
+                assetName: assetResult.productName,
+                assetType: assetResult.productType,
+                assetImage: assetResult.productImage,
+
+                employeeName: requestResult.requesterName,
+                employeeEmail: requestResult.requesterEmail,
+
+                hrEmail: requestResult.hrEmail,
+                companyName: requestResult.companyName,
+                companyLogo: assetResult.companyLogo || requestResult.companyLogo,
+
+                assignmentDate: new Date(),
+                returnDate: null, 
+                status: "assigned"
+            };
+
+            const assignedAssetResult = await assignedAssetCollection.insertOne(assignedAssetData);
+
+            // Employee Affiliation Check
+            const affiliationQuery = {
+                employeeEmail: requestResult.requesterEmail,
+                hrEmail: requestResult.hrEmail
+            };
+            const existingAffiliation = await affiliationCollection.findOne(affiliationQuery);
+
+            // Create Employee Affiliation
+            let newAffiliationResult = null;
+            let hrUpdateResult = null;
+
+            if (!existingAffiliation) {
+
+                const queryEmail = { email: requestResult.hrEmail }
+                const hrResult = await userCollection.findOne(queryEmail);
+
+                const newAffiliationData = {
+                    employeeEmail: requestResult.requesterEmail,
+                    employeeName: requestResult.requesterName,
+                    hrEmail: requestResult.hrEmail,
+                    companyName: hrResult.companyName,
+                    companyLogo: hrResult.companyLogo,
+
+                    affiliationDate: new Date(),
+                    status: "active"
+                };
+                newAffiliationResult = await affiliationCollection.insertOne(newAffiliationData);
+
+
+                const hrquery = { email: requestResult.hrEmail };
+                const hrUpdateDoc = { $inc: { currentEmployees: 1 } };
+
+                hrUpdateResult = await userCollection.updateOne(hrquery, hrUpdateDoc);
+            }
+
+            // Request Approve
+            const requestUpdateDoc = {
+                $set: {
+                    requestStatus: "approved",
+                    approvalDate: new Date()
+                }
+            };
+            const requestUpdateResult = await requestCollection.updateOne(requestQuery, requestUpdateDoc);
+
+            res.send({
+                success: true,
+                message: "Request approved successfully",
+                assetUpdateResult,
+                assignedAssetResult,
+                affiliationResult: newAffiliationResult,
+                hrUpdateResult,
+                requestUpdateResult
+            });
+        });
+
+
+        // Reject Request API
+        app.patch("/requests/reject/:id", async (req, res) => {
+            const id = req.params.id;
+
+            // Find Request
+            const requestQuery = { _id: new ObjectId(id) };
+            const requestResult = await requestCollection.findOne(requestQuery);
+
+            if (!requestResult || requestResult.requestStatus !== "pending") {
+                return res.send({ success: false, message: "Invalid request" });
+            }
+
+            // Request Reject
+            const requestUpdateDoc = {
+                $set: {
+                    requestStatus: "rejected",
+                    rejectionDate: new Date()
+                }
+            };
+            const requestUpdateResult = await requestCollection.updateOne(requestQuery, requestUpdateDoc);
+
+            res.send({
+                success: true,
+                message: "Request rejected successfully",
+                requestUpdateResult
+            });
+        });
+
+
+
+
+
+
         // Employee Related APIs
 
         // Available Asset 
@@ -235,6 +390,7 @@ async function run() {
                 requesterEmail: data.requesterEmail,
                 hrEmail: asset.hrEmail,
                 companyName: asset.companyName,
+                companyLogo: asset.companyLogo,
 
                 requestDate: new Date(),
                 approvalDate: null,
