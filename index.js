@@ -30,6 +30,7 @@ async function run() {
         const db = client.db('asset_verse_db');
         const userCollection = db.collection('users')
         const assetCollection = db.collection('assets')
+        const requestCollection = db.collection("requests");
 
         // Create Employee Account
         app.post("/register/employee", async (req, res) => {
@@ -185,6 +186,69 @@ async function run() {
             const result = await assetCollection.deleteOne({ _id: new ObjectId(id) });
             res.send(result);
         });
+
+
+        // Employee Related APIs
+
+        // Available Asset 
+        app.get("/employee/assets", async (req, res) => {
+            const query = {
+                availableQuantity: { $gt: 0 }
+            }
+            const result = await assetCollection.find(query).toArray();
+            res.send(result);
+        });
+
+
+        // Request An Asset
+        app.post("/requests", async (req, res) => {
+            const data = req.body;
+            const assetId = data.assetId;
+
+            if (!assetId) {
+                return res.status(400).send({ success: false, message: "Asset ID is required" });
+            }
+
+            const query = { _id: new ObjectId(assetId) }
+            const asset = await assetCollection.findOne(query);
+
+            if (!asset || asset.availableQuantity <= 0) {
+                return res.send({ success: false, message: "Asset not available" });
+            }
+
+            // Check Duplicate Request
+            const existingRequest = await requestCollection.findOne({
+                assetId: asset._id,
+                requesterEmail: data.requesterEmail,
+                requestStatus: "pending"
+            });
+
+            if (existingRequest) {
+                return res.send({ success: false, message: "You already have a pending request for this asset." });
+            }
+
+            const updateDoc = {
+                assetId: asset._id,
+                assetName: asset.productName,
+                assetType: asset.productType,
+                requesterName: data.requesterName,
+                requesterEmail: data.requesterEmail,
+                hrEmail: asset.hrEmail,
+                companyName: asset.companyName,
+
+                requestDate: new Date(),
+                approvalDate: null,
+                requestStatus: "pending",
+
+                note: data.note || "",
+                processedBy: null
+            };
+
+            const result = await requestCollection.insertOne(updateDoc);
+
+            res.send({ success: true, result });
+        });
+
 
 
         // Send a ping to confirm a successful connection
