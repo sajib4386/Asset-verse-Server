@@ -96,6 +96,27 @@ async function run() {
         })
 
 
+
+        // AssetList API
+        app.get("/assets", async (req, res) => {
+            const { email, search } = req.query;
+
+            let query = {};
+            if (email) query.hrEmail = email;
+
+            if (search) {
+                query.productName = { $regex: search, $options: "i" };
+            }
+
+            const result = await assetCollection
+                .find(query)
+                .sort({ createdAt: -1 })
+                .toArray();
+
+            res.send(result);
+        });
+
+
         // HR Related APIs
 
         // Add Asset
@@ -110,8 +131,8 @@ async function run() {
 
             const newAsset = {
                 productName: data.productName,
-                productImage: data.productImage, 
-                productType: data.productType,   
+                productImage: data.productImage,
+                productType: data.productType,
                 productQuantity: Number(data.productQuantity),
                 availableQuantity: Number(data.productQuantity),
 
