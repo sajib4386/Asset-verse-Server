@@ -3,7 +3,7 @@ const cors = require('cors')
 require('dotenv').config()
 const app = express()
 const port = process.env.PORT || 3000
-const { MongoClient, ServerApiVersion } = require('mongodb');
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 
 
@@ -95,28 +95,6 @@ async function run() {
             res.send({ role: user?.role || 'user' })
         })
 
-
-
-        // AssetList API
-        app.get("/assets", async (req, res) => {
-            const { email, search } = req.query;
-
-            let query = {};
-            if (email) query.hrEmail = email;
-
-            if (search) {
-                query.productName = { $regex: search, $options: "i" };
-            }
-
-            const result = await assetCollection
-                .find(query)
-                .sort({ createdAt: -1 })
-                .toArray();
-
-            res.send(result);
-        });
-
-
         // HR Related APIs
 
         // Add Asset
@@ -145,6 +123,62 @@ async function run() {
 
             res.send({ success: true, asset: result });
         });
+
+
+        // AssetList API
+        app.get("/assets", async (req, res) => {
+            const { email, search } = req.query;
+
+            let query = {};
+            if (email) query.hrEmail = email;
+
+            if (search) {
+                query.productName = { $regex: search, $options: "i" };
+            }
+
+            const result = await assetCollection
+                .find(query)
+                .sort({ createdAt: -1 })
+                .toArray();
+
+            res.send(result);
+        });
+
+
+        // Update/Edit Asset
+        app.patch("/assets/:id", async (req, res) => {
+            const id = req.params.id;
+            const data = req.body;
+            const query = { _id: new ObjectId(id) };
+
+            const asset = await assetCollection.findOne(query);
+            if (!asset) {
+                return res.send({ success: false, message: "Asset not found" });
+            }
+
+
+            const newQuantity = Number(data.productQuantity);
+            const totalQuantity = newQuantity - asset.productQuantity;
+
+            if (asset.availableQuantity + totalQuantity < 0) {
+                return res.send({ success: false, message: "Invalid quantity update. Assets already assigned." });
+            }
+
+
+            const updateDoc = {
+                $set: {
+                    productName: data.productName,
+                    productType: data.productType,
+                    productQuantity: newQuantity,
+                    availableQuantity: asset.availableQuantity + totalQuantity,
+                    productImage: data.productImage || asset.productImage
+                }
+            };
+
+            const result = await assetCollection.updateOne(query, updateDoc);
+            res.send(result);
+        });
+
 
 
         // Send a ping to confirm a successful connection
