@@ -208,6 +208,7 @@ async function run() {
         });
 
 
+
         // Approve Request API
         app.patch("/requests/approve/:id", async (req, res) => {
             const id = req.params.id;
@@ -291,6 +292,24 @@ async function run() {
                 hrUpdateResult = await userCollection.updateOne(hrquery, hrUpdateDoc);
             }
 
+            // Remove Employee Rejoin
+            else if (existingAffiliation.status === "inactive") {
+                await affiliationCollection.updateOne(
+                    { _id: existingAffiliation._id },
+                    {
+                        $set: {
+                            status: "active",
+                            rejoinedAt: new Date()
+                        }
+                    }
+                );
+
+                await userCollection.updateOne(
+                    { email: requestResult.hrEmail },
+                    { $inc: { currentEmployees: 1 } }
+                );
+            }
+
             // Request Approve
             const requestUpdateDoc = {
                 $set: {
@@ -311,6 +330,7 @@ async function run() {
                 requestUpdateResult
             });
         });
+
 
 
         // Reject Request API
@@ -344,6 +364,154 @@ async function run() {
 
 
 
+        // Employee List API
+        app.get("/hr/employee-list", async (req, res) => {
+            const { hrEmail } = req.query;
+
+            // HR Info
+            const query = { email: hrEmail, role: "hr" };
+            const options = {
+                projection: { packageLimit: 1, currentEmployees: 1 }
+            };
+            const hrInfo = await userCollection.findOne(query, options)
+
+
+            const pipeline = [
+
+                {
+                    $match: {
+                        hrEmail,
+                        status: "active"
+                    }
+                },
+
+                {
+                    $lookup: {
+                        from: "assignedAssets",
+                        localField: "employeeEmail",
+                        foreignField: "employeeEmail",
+                        as: "assets"
+                    }
+                },
+
+                {
+                    $lookup: {
+                        from: "users",
+                        localField: "employeeEmail",
+                        foreignField: "email",
+                        as: "user"
+                    }
+                },
+
+                {
+                    $project: {
+                        _id: 1,
+                        name: "$employeeName",
+                        email: "$employeeEmail",
+                        joinDate: "$affiliationDate",
+                        assetCount: {
+                            $size: {
+                                $filter: {
+                                    input: "$assets",
+                                    as: "a",
+                                    cond: { $eq: ["$$a.hrEmail", hrEmail] }
+                                }
+                            }
+                        },
+                        photoURL: { $arrayElemAt: ["$user.photoURL", 0] }
+                    }
+                }
+            ];
+
+            const result = await affiliationCollection.aggregate(pipeline).toArray();
+
+            res.send({
+                result,
+                used: result.length,
+                limit: hrInfo?.packageLimit || 0
+            });
+        });
+
+        app.patch("/hr/remove-employee", async (req, res) => {
+            const { hrEmail, employeeEmail } = req.body;
+
+            // HR Check
+            const hrResult = await userCollection.findOne({
+                email: hrEmail,
+                role: "hr"
+            });
+
+            if (!hrResult) {
+                return res.send({ success: false, message: "Unauthorized" });
+            }
+
+
+            const affiliationQuery = {
+                hrEmail,
+                employeeEmail,
+                status: "active"
+            };
+
+            const affiliationResult = await affiliationCollection.findOne(affiliationQuery);
+
+            if (!affiliationResult) {
+                return res.send({ success: false, message: "Employee not found" });
+            }
+
+
+            const approvedQuery = {
+                hrEmail,
+                employeeEmail,
+                status: "approved"
+            }
+            const assignedAssetsResult = await assignedAssetCollection.find(approvedQuery).toArray();
+
+
+            const returnUpdate = {
+                $set: {
+                    status: "returned",
+                    returnDate: new Date()
+                }
+            }
+            const returnAssetsResult = await assignedAssetCollection.updateMany(approvedQuery, returnUpdate);
+
+
+            // Increase asset available quantity
+            const assetIds = assignedAssetsResult.map(a => a.assetId);
+            const assetId = { _id: { $in: assetIds } }
+            const updateQuantity = { $inc: { availableQuantity: 1 } }
+
+            const assetQuantityUpdateResult = await assetCollection.updateMany(assetId, updateQuantity);
+
+
+            // Remove Employee
+            const updateEmployeeStatus = {
+                $set: {
+                    status: "inactive",
+                    removedAt: new Date()
+                }
+            }
+            const removeAffiliationResult = await affiliationCollection.updateOne(affiliationQuery, updateEmployeeStatus);
+
+
+            // Reduce HR Employee Count
+            const hrEmailQuery = { email: hrEmail }
+            const updateEmployee = { $inc: { currentEmployees: -1 } }
+            const hrUpdateResult = await userCollection.updateOne(hrEmailQuery, updateEmployee);
+
+
+            res.send({
+                success: true,
+                message: "Employee removed from team successfully",
+                results: {
+                    returnedAssets: returnAssetsResult.modifiedCount,
+                    assetsUpdated: assetQuantityUpdateResult.modifiedCount,
+                    affiliationRemoved: removeAffiliationResult.modifiedCount,
+                    hrEmployeeUpdated: hrUpdateResult.modifiedCount
+                }
+            });
+        });
+
 
 
 
@@ -357,6 +525,7 @@ async function run() {
             const result = await assetCollection.find(query).toArray();
             res.send(result);
         });
+
 
 
         // Request An Asset
@@ -409,6 +578,8 @@ async function run() {
             res.send({ success: true, result });
         });
 
+
+
         // My Assets API
         app.get("/assigned-assets", async (req, res) => {
             const { email, search, filter } = req.query;
@@ -430,70 +601,6 @@ async function run() {
 
             res.send(result);
         });
-
-        // Employee List API
-        app.get("/hr/employee-list", async (req, res) => {
-            const { hrEmail } = req.query;
-
-            // HR Info
-            const query = { email: hrEmail, role: "hr" };
-            const options = {
-                projection: { packageLimit: 1, currentEmployees: 1 }
-            };
-            const hrInfo = await userCollection.findOne(query, options)
-
-
-            const pipeline = [
-
-                { $match: { hrEmail } },
-
-                {
-                    $lookup: {
-                        from: "assignedAssets",
-                        localField: "employeeEmail",
-                        foreignField: "employeeEmail",
-                        as: "assets"
-                    }
-                },
-
-                {
-                    $lookup: {
-                        from: "users",
-                        localField: "employeeEmail",
-                        foreignField: "email",
-                        as: "user"
-                    }
-                },
-
-                {
-                    $project: {
-                        _id: 1,
-                        name: "$employeeName",
-                        email: "$employeeEmail",
-                        joinDate: "$affiliationDate",
-                        assetCount: {
-                            $size: {
-                                $filter: {
-                                    input: "$assets",
-                                    as: "a",
-                                    cond: { $eq: ["$$a.hrEmail", hrEmail] }
-                                }
-                            }
-                        },
-                        photoURL: { $arrayElemAt: ["$user.photoURL", 0] }
-                    }
-                }
-            ];
-
-            const result = await affiliationCollection.aggregate(pipeline).toArray();
-
-            res.send({
-                result,
-                used: result.length,
-                limit: hrInfo?.packageLimit || 0
-            });
-        });
-
 
 
         // Send a ping to confirm a successful connection
