@@ -232,7 +232,7 @@ async function run() {
             const assetUpdateDoc = { $inc: { availableQuantity: -1 } };
             const assetUpdateResult = await assetCollection.updateOne(assetQuery, assetUpdateDoc);
 
-
+            const approvalDate = new Date();
             // Employee Assign
             const assignedAssetData = {
                 assetId: assetResult._id,
@@ -248,8 +248,10 @@ async function run() {
                 companyLogo: assetResult.companyLogo || requestResult.companyLogo,
 
                 assignmentDate: new Date(),
+                requestDate: requestResult.requestDate,
+                approvalDate: approvalDate,
                 returnDate: null,
-                status: "assigned"
+                status: "approved"
             };
 
             const assignedAssetResult = await assignedAssetCollection.insertOne(assignedAssetData);
@@ -418,7 +420,7 @@ async function run() {
             }
 
             if (filter && filter !== "All") {
-                query.assetType = filter; 
+                query.assetType = filter;
             }
 
             const result = await assignedAssetCollection
@@ -427,6 +429,69 @@ async function run() {
                 .toArray();
 
             res.send(result);
+        });
+
+        // Employee List API
+        app.get("/hr/employee-list", async (req, res) => {
+            const { hrEmail } = req.query;
+
+            // HR Info
+            const query = { email: hrEmail, role: "hr" };
+            const options = {
+                projection: { packageLimit: 1, currentEmployees: 1 }
+            };
+            const hrInfo = await userCollection.findOne(query, options)
+
+
+            const pipeline = [
+
+                { $match: { hrEmail } },
+
+                {
+                    $lookup: {
+                        from: "assignedAssets",
+                        localField: "employeeEmail",
+                        foreignField: "employeeEmail",
+                        as: "assets"
+                    }
+                },
+
+                {
+                    $lookup: {
+                        from: "users",
+                        localField: "employeeEmail",
+                        foreignField: "email",
+                        as: "user"
+                    }
+                },
+
+                {
+                    $project: {
+                        _id: 1,
+                        name: "$employeeName",
+                        email: "$employeeEmail",
+                        joinDate: "$affiliationDate",
+                        assetCount: {
+                            $size: {
+                                $filter: {
+                                    input: "$assets",
+                                    as: "a",
+                                    cond: { $eq: ["$$a.hrEmail", hrEmail] }
+                                }
+                            }
+                        },
+                        photoURL: { $arrayElemAt: ["$user.photoURL", 0] }
+                    }
+                }
+            ];
+
+            const result = await affiliationCollection.aggregate(pipeline).toArray();
+
+            res.send({
+                result,
+                used: result.length,
+                limit: hrInfo?.packageLimit || 0
+            });
         });
 
 
