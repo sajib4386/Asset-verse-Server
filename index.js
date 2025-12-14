@@ -248,7 +248,7 @@ async function run() {
                 companyLogo: assetResult.companyLogo || requestResult.companyLogo,
 
                 assignmentDate: new Date(),
-                returnDate: null, 
+                returnDate: null,
                 status: "assigned"
             };
 
@@ -293,7 +293,8 @@ async function run() {
             const requestUpdateDoc = {
                 $set: {
                     requestStatus: "approved",
-                    approvalDate: new Date()
+                    approvalDate: new Date(),
+                    processedBy: requestResult.hrEmail
                 }
             };
             const requestUpdateResult = await requestCollection.updateOne(requestQuery, requestUpdateDoc);
@@ -326,7 +327,8 @@ async function run() {
             const requestUpdateDoc = {
                 $set: {
                     requestStatus: "rejected",
-                    rejectionDate: new Date()
+                    rejectionDate: new Date(),
+                    processedBy: requestResult.hrEmail
                 }
             };
             const requestUpdateResult = await requestCollection.updateOne(requestQuery, requestUpdateDoc);
@@ -403,6 +405,28 @@ async function run() {
             const result = await requestCollection.insertOne(updateDoc);
 
             res.send({ success: true, result });
+        });
+
+        // My Assets API
+        app.get("/assigned-assets", async (req, res) => {
+            const { email, search, filter } = req.query;
+
+            let query = { employeeEmail: email };
+
+            if (search) {
+                query.assetName = { $regex: search, $options: "i" };
+            }
+
+            if (filter && filter !== "All") {
+                query.assetType = filter; 
+            }
+
+            const result = await assignedAssetCollection
+                .find(query)
+                .sort({ assignmentDate: -1 })
+                .toArray();
+
+            res.send(result);
         });
 
 
