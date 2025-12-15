@@ -4,6 +4,7 @@ require('dotenv').config()
 const app = express()
 const port = process.env.PORT || 3000
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
+const stripe = require('stripe')(process.env.STRIPE_SECRET);
 
 
 
@@ -31,8 +32,13 @@ async function run() {
         const userCollection = db.collection('users')
         const assetCollection = db.collection('assets')
         const requestCollection = db.collection("requests");
+
         const assignedAssetCollection = db.collection("assignedAssets");
         const affiliationCollection = db.collection("employeeAffiliations");
+
+        const packagesCollection = db.collection("packages");
+        const paymentsCollection = db.collection("payments");
+
 
         // Create Employee Account
         app.post("/register/employee", async (req, res) => {
@@ -80,7 +86,7 @@ async function run() {
                 role: "hr",
                 packageLimit: 5,
                 currentEmployees: 0,
-                subscription: "basic",
+                subscription: "free",
                 createdAt: new Date()
             };
 
@@ -221,6 +227,27 @@ async function run() {
                 return res.send({ success: false, message: "Invalid request" });
             }
 
+            // Employee Count
+            const activeEmployeeCount = await affiliationCollection.countDocuments({
+                hrEmail: requestResult.hrEmail,
+                status: "active"
+            });
+
+            // Only need packageLimit from HR
+            const hrInfo = await userCollection.findOne(
+                { email: requestResult.hrEmail },
+                { projection: { packageLimit: 1 } }
+            );
+
+            // Package limit check
+            if (activeEmployeeCount >= hrInfo.packageLimit) {
+                return res.send({
+                    success: false,
+                    message: "Package limit reached. Please upgrade your package."
+                });
+            }
+
+
             // Asset check
             const assetQuery = { _id: new ObjectId(requestResult.assetId) };
             const assetResult = await assetCollection.findOne(assetQuery);
@@ -228,6 +255,8 @@ async function run() {
             if (!assetResult || assetResult.availableQuantity < 1) {
                 return res.send({ success: false, message: "Asset not available" });
             }
+
+
 
             // Asset Quantity Reduce
             const assetUpdateDoc = { $inc: { availableQuantity: -1 } };
@@ -309,6 +338,7 @@ async function run() {
                     { $inc: { currentEmployees: 1 } }
                 );
             }
+
 
             // Request Approve
             const requestUpdateDoc = {
@@ -601,6 +631,152 @@ async function run() {
 
             res.send(result);
         });
+
+
+
+        // Payment Related API
+
+        // Packages
+        app.get('/packages', async (req, res) => {
+            const result = await packagesCollection.find().toArray();
+            res.send(result);
+        })
+
+        // Stripe
+        app.post('/hr/create-checkout-session', async (req, res) => {
+            try {
+                const { hrEmail, packageName } = req.body;
+
+
+                const packageData = await packagesCollection.findOne({ name: packageName });
+
+                if (!packageData) {
+                    return res.status(404).send({ message: "Package not found" });
+                }
+                const amount = packageData.price * 100;
+
+
+                const session = await stripe.checkout.sessions.create({
+                    payment_method_types: ['card'],
+                    line_items: [{
+                        price_data: {
+                            currency: 'USD',
+                            unit_amount: amount,
+                            product_data: {
+                                name: `Upgrade Package: ${packageName}`
+                            },
+                        },
+                        quantity: 1
+                    }],
+                    mode: 'payment',
+                    customer_email: hrEmail,
+                    metadata: {
+                        hrEmail,
+                        packageName
+                    },
+                    success_url: `${process.env.SITE_DOMAIN}/dashboard/hr/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+                    cancel_url: `${process.env.SITE_DOMAIN}/dashboard/hr/payment-cancelled`
+                });
+
+                res.send({ url: session.url });
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: 'Stripe session creation failed' });
+            }
+        });
+
+
+        // Payment Success
+        app.patch('/hr/payment-success', async (req, res) => {
+            try {
+                const sessionId = req.query.session_id;
+                const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+                // Double Transaction Stop
+                const transactionId = session.payment_intent;
+
+                // Check duplicate transaction
+                const paymentExist = await paymentsCollection.findOne({ transactionId });
+                if (paymentExist) {
+                    return res.send({ message: 'Payment already exists', transactionId });
+                }
+
+                if (session.payment_status === 'paid') {
+
+                    const packageData = await packagesCollection.findOne({
+                        name: session.metadata.packageName
+                    });
+
+                    const payment = {
+                        hrEmail: session.metadata.hrEmail,
+                        packageName: session.metadata.packageName,
+                        employeeLimit: packageData.employeeLimit,
+                        amount: session.amount_total / 100,
+                        currency: session.currency,
+                        transactionId: transactionId,
+                        paymentDate: new Date(),
+                        status: "completed"
+                    };
+
+                    const result = await paymentsCollection.insertOne(payment);
+
+                    // Update HR user's package in users collection
+                    await userCollection.updateOne(
+                        { email: session.metadata.hrEmail },
+                        {
+                            $set: {
+                                subscription: session.metadata.packageName
+                            },
+                            $inc: {
+                                packageLimit: packageData.employeeLimit
+                            }
+                        }
+                    );
+
+
+                    // Update HR currentEmployees count
+                    const activeEmployeesCount = await affiliationCollection.countDocuments({
+                        hrEmail: session.metadata.hrEmail,
+                        status: "active"
+                    });
+
+                    await userCollection.updateOne(
+                        { email: session.metadata.hrEmail },
+                        { $set: { currentEmployees: activeEmployeesCount } }
+                    );
+
+
+                    res.send({
+                        success: true,
+                        transactionId: transactionId,
+                        paymentRecord: result
+                    });
+                } else {
+                    res.send({ success: false });
+                }
+
+            } catch (error) {
+                console.error(error);
+                res.status(500).send({ message: 'Payment processing failed' });
+            }
+        });
+
+
+        // Payment History
+        app.get('/hr/payments', async (req, res) => {
+            const { hrEmail } = req.query;
+
+            const payments = await paymentsCollection
+                .find({ hrEmail })
+                .sort({ paymentDate: -1 })
+                .toArray();
+
+            res.send(payments);
+        });
+
+
+
 
 
         // Send a ping to confirm a successful connection
