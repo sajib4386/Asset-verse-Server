@@ -448,7 +448,11 @@ async function run() {
                                 }
                             }
                         },
-                        photoURL: { $arrayElemAt: ["$user.photoURL", 0] }
+                        photoURL: { $arrayElemAt: ["$user.photoURL", 0] },
+                        
+                        // My Team page এর জন্য
+                        dateOfBirth: { $arrayElemAt: ["$user.dateOfBirth", 0] },
+                        position: { $arrayElemAt: ["$user.position", 0] }
                     }
                 }
             ];
@@ -630,6 +634,21 @@ async function run() {
                 .toArray();
 
             res.send(result);
+        });
+
+
+        // Get All Companies
+        app.get('/hr/companies', async (req, res) => {
+            try {
+                const companies = await userCollection
+                    .find({ role: "hr" })
+                    .project({ _id: 1, companyName: 1, email: 1 })
+                    .toArray();
+                res.send(companies);
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ success: false, message: "Failed to fetch companies" });
+            }
         });
 
 
