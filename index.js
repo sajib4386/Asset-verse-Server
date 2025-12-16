@@ -40,7 +40,7 @@ async function run() {
         const paymentsCollection = db.collection("payments");
 
 
-        // Create Employee Account
+        //           CREATE EMPLOYEE ACCOUNT
         app.post("/register/employee", async (req, res) => {
             const data = req.body;
 
@@ -66,7 +66,7 @@ async function run() {
         });
 
 
-        // Create HR Account
+        //            CREATE HR ACCOUNT
         app.post("/register/hr", async (req, res) => {
             const data = req.body;
 
@@ -96,7 +96,7 @@ async function run() {
         });
 
 
-        // ROLE API
+        //            ROLE API
         app.get('/users/:email/role', async (req, res) => {
             const email = req.params.email;
             const query = { email };
@@ -106,9 +106,9 @@ async function run() {
 
 
 
-        // HR Related APIs
+        //             HR RELATED APIS
 
-        // Add Asset
+        //              ADD ASSET
         app.post("/assets/add", async (req, res) => {
             const data = req.body;
 
@@ -137,7 +137,7 @@ async function run() {
         });
 
 
-        // AssetList API
+        //           ASSETLIST API
         app.get("/assets", async (req, res) => {
             const { email, search } = req.query;
 
@@ -157,7 +157,7 @@ async function run() {
         });
 
 
-        // Update/Edit Asset
+        //        UPDATE/EDIT ASSET
         app.patch("/assets/:id", async (req, res) => {
             const id = req.params.id;
             const data = req.body;
@@ -191,7 +191,7 @@ async function run() {
             res.send(result);
         });
 
-        // Delete Asset
+        //         DELETE ASSET
         app.delete("/assets/:id", async (req, res) => {
             const id = req.params.id;
             const result = await assetCollection.deleteOne({ _id: new ObjectId(id) });
@@ -200,8 +200,7 @@ async function run() {
 
 
 
-        // API For HR Request Page
-        // All Requests API
+        //        ALL REQUEST API
         app.get("/requests/hr", async (req, res) => {
             const { hrEmail } = req.query;
 
@@ -215,7 +214,7 @@ async function run() {
 
 
 
-        // Approve Request API
+        //          APPROVE REQUEST API
         app.patch("/requests/approve/:id", async (req, res) => {
             const id = req.params.id;
 
@@ -363,7 +362,7 @@ async function run() {
 
 
 
-        // Reject Request API
+        //           REJECT REQUEST API
         app.patch("/requests/reject/:id", async (req, res) => {
             const id = req.params.id;
 
@@ -394,7 +393,7 @@ async function run() {
 
 
 
-        // Employee List API
+        //           EMPLOYEE LIST API
         app.get("/hr/employee-list", async (req, res) => {
             const { hrEmail } = req.query;
 
@@ -449,8 +448,8 @@ async function run() {
                             }
                         },
                         photoURL: { $arrayElemAt: ["$user.photoURL", 0] },
-                        
-                        // My Team page এর জন্য
+
+                        // For My Team page 
                         dateOfBirth: { $arrayElemAt: ["$user.dateOfBirth", 0] },
                         position: { $arrayElemAt: ["$user.position", 0] }
                     }
@@ -465,7 +464,8 @@ async function run() {
                 limit: hrInfo?.packageLimit || 0
             });
         });
-
+         
+        //              EMPLOYEE REMOVE API
         app.patch("/hr/remove-employee", async (req, res) => {
             const { hrEmail, employeeEmail } = req.body;
 
@@ -549,9 +549,9 @@ async function run() {
 
 
 
-        // Employee Related APIs
+        //              EMPLOYEE RELATED APIS
 
-        // Available Asset 
+        //            AVAILABLE ASSET API 
         app.get("/employee/assets", async (req, res) => {
             const query = {
                 availableQuantity: { $gt: 0 }
@@ -562,7 +562,7 @@ async function run() {
 
 
 
-        // Request An Asset
+        //            REQUEST AN ASSET
         app.post("/requests", async (req, res) => {
             const data = req.body;
             const assetId = data.assetId;
@@ -614,7 +614,7 @@ async function run() {
 
 
 
-        // My Assets API
+        //            MY ASSETS API
         app.get("/assigned-assets", async (req, res) => {
             const { email, search, filter } = req.query;
 
@@ -637,7 +637,7 @@ async function run() {
         });
 
 
-        // Get All Companies
+        //          GET ALL COMPANIES
         app.get('/hr/companies', async (req, res) => {
             try {
                 const companies = await userCollection
@@ -653,15 +653,16 @@ async function run() {
 
 
 
-        // Payment Related API
+        //               PAYMENT RELATED APIS
 
-        // Packages
+        //       UPGRADE PACKAGES
         app.get('/packages', async (req, res) => {
             const result = await packagesCollection.find().toArray();
             res.send(result);
         })
 
-        // Stripe
+
+        //            PAYMENT INTEGRATION STRIPE 
         app.post('/hr/create-checkout-session', async (req, res) => {
             try {
                 const { hrEmail, packageName } = req.body;
@@ -706,7 +707,7 @@ async function run() {
         });
 
 
-        // Payment Success
+        //              PAYMENT SUCCESS
         app.patch('/hr/payment-success', async (req, res) => {
             try {
                 const sessionId = req.query.session_id;
@@ -782,7 +783,7 @@ async function run() {
         });
 
 
-        // Payment History
+        //          PAYMENT HISTORY
         app.get('/hr/payments', async (req, res) => {
             const { hrEmail } = req.query;
 
@@ -794,6 +795,54 @@ async function run() {
             res.send(payments);
         });
 
+
+
+        //           SHARED PROFILE FOR (HR & EMPLOYEE)
+
+        // GET USER PROFILE
+        app.get("/profile/:email", async (req, res) => {
+            const email = req.params.email;
+
+            const user = await userCollection.findOne(
+                { email },
+                { projection: { password: 0 } }
+            );
+
+            if (!user) {
+                return res.send({ success: false, message: "User not found" });
+            }
+
+            // Employee affiliation 
+            const affiliations = await affiliationCollection.find({
+                employeeEmail: email,
+                status: "active"
+            }).toArray();
+
+            res.send({
+                success: true,
+                user,
+                affiliations
+            });
+        });
+
+
+        // UPDATE PROFILE
+        app.patch("/profile/update", async (req, res) => {
+            const { email, name, photoURL, dateOfBirth } = req.body;
+
+            const result = await userCollection.updateOne(
+                { email },
+                {
+                    $set: {
+                        name,
+                        photoURL,
+                        dateOfBirth
+                    }
+                }
+            );
+
+            res.send({ success: true, result });
+        });
 
 
 
