@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 require('dotenv').config()
+const jwt = require('jsonwebtoken');
 const app = express()
 const port = process.env.PORT || 3000
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -11,6 +12,27 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET);
 // middleware
 app.use(cors());
 app.use(express.json());
+
+// VerifyJWT
+const verifyJWTToken = (req, res, next) => {
+
+    const authorization = req.headers.authorization;
+    if (!authorization) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+    const token = authorization.split(' ')[1];
+    if (!token) {
+        return res.status(401).send({ message: 'unauthorized access' })
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+        if (err) {
+            return res.status(401).send({ message: 'unauthorized access' })
+        }
+        req.token_email = decoded.email;
+        next();
+    })
+}
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@sajib43.hq7hrle.mongodb.net/?appName=Sajib43`;
 
@@ -38,6 +60,35 @@ async function run() {
 
         const packagesCollection = db.collection("packages");
         const paymentsCollection = db.collection("payments");
+
+        // Generate JWT
+        app.post('/getToken', async (req, res) => {
+            const { email } = req.body;
+
+            const user = await userCollection.findOne({ email });
+            if (!user) {
+                return res.status(401).send({ message: 'Invalid user' });
+            }
+
+            const token = jwt.sign({ email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+            res.send({ token });
+        });
+
+
+        // VerifyHR
+        const verifyHR = async (req, res, next) => {
+            const email = req.token_email;
+
+            const user = await userCollection.findOne({ email });
+            if (!user || user.role !== 'hr') {
+                return res.status(403).send({ message: 'HR only access' });
+            }
+
+            req.hr = user;
+            next();
+        };
+
 
 
         //           CREATE EMPLOYEE ACCOUNT
@@ -109,14 +160,9 @@ async function run() {
         //             HR RELATED APIS
 
         //              ADD ASSET
-        app.post("/assets/add", async (req, res) => {
+        app.post("/assets/add", verifyJWTToken, verifyHR, async (req, res) => {
             const data = req.body;
-
-            // Validate HR
-            const hr = await userCollection.findOne({ email: data.hrEmail, role: "hr" });
-            if (!hr) {
-                return res.send({ success: false, message: "Only HR can add assets!" });
-            }
+            const hr = req.hr;
 
             const newAsset = {
                 productName: data.productName,
@@ -138,7 +184,7 @@ async function run() {
 
 
         //           ASSETLIST API
-        app.get("/assets", async (req, res) => {
+        app.get("/assets", verifyJWTToken, verifyHR, async (req, res) => {
             const { email, search } = req.query;
 
             let query = {};
@@ -158,7 +204,7 @@ async function run() {
 
 
         //        UPDATE/EDIT ASSET
-        app.patch("/assets/:id", async (req, res) => {
+        app.patch("/assets/:id", verifyJWTToken, verifyHR, async (req, res) => {
             const id = req.params.id;
             const data = req.body;
             const query = { _id: new ObjectId(id) };
@@ -192,7 +238,7 @@ async function run() {
         });
 
         //         DELETE ASSET
-        app.delete("/assets/:id", async (req, res) => {
+        app.delete("/assets/:id", verifyJWTToken, verifyHR, async (req, res) => {
             const id = req.params.id;
             const result = await assetCollection.deleteOne({ _id: new ObjectId(id) });
             res.send(result);
@@ -201,8 +247,8 @@ async function run() {
 
 
         //        ALL REQUEST API
-        app.get("/requests/hr", async (req, res) => {
-            const { hrEmail } = req.query;
+        app.get("/requests/hr", verifyJWTToken, verifyHR, async (req, res) => {
+            const hrEmail = req.token_email;
 
             const result = await requestCollection
                 .find({ hrEmail })
@@ -215,7 +261,7 @@ async function run() {
 
 
         //          APPROVE REQUEST API
-        app.patch("/requests/approve/:id", async (req, res) => {
+        app.patch("/requests/approve/:id", verifyJWTToken, verifyHR, async (req, res) => {
             const id = req.params.id;
 
             // Find Request
@@ -363,7 +409,7 @@ async function run() {
 
 
         //           REJECT REQUEST API
-        app.patch("/requests/reject/:id", async (req, res) => {
+        app.patch("/requests/reject/:id", verifyJWTToken, verifyHR, async (req, res) => {
             const id = req.params.id;
 
             // Find Request
@@ -394,8 +440,8 @@ async function run() {
 
 
         //           EMPLOYEE LIST API
-        app.get("/hr/employee-list", async (req, res) => {
-            const { hrEmail } = req.query;
+        app.get("/hr/employee-list", verifyJWTToken, verifyHR, async (req, res) => {
+            const hrEmail = req.token_email;
 
             // HR Info
             const query = { email: hrEmail, role: "hr" };
@@ -464,21 +510,11 @@ async function run() {
                 limit: hrInfo?.packageLimit || 0
             });
         });
-         
+
         //              EMPLOYEE REMOVE API
-        app.patch("/hr/remove-employee", async (req, res) => {
-            const { hrEmail, employeeEmail } = req.body;
-
-            // HR Check
-            const hrResult = await userCollection.findOne({
-                email: hrEmail,
-                role: "hr"
-            });
-
-            if (!hrResult) {
-                return res.send({ success: false, message: "Unauthorized" });
-            }
-
+        app.patch("/hr/remove-employee", verifyJWTToken, verifyHR, async (req, res) => {
+            const hrEmail = req.token_email;
+            const { employeeEmail } = req.body;
 
             const affiliationQuery = {
                 hrEmail,
@@ -552,7 +588,7 @@ async function run() {
         //              EMPLOYEE RELATED APIS
 
         //            AVAILABLE ASSET API 
-        app.get("/employee/assets", async (req, res) => {
+        app.get("/employee/assets", verifyJWTToken, async (req, res) => {
             const query = {
                 availableQuantity: { $gt: 0 }
             }
@@ -563,7 +599,7 @@ async function run() {
 
 
         //            REQUEST AN ASSET
-        app.post("/requests", async (req, res) => {
+        app.post("/requests", verifyJWTToken, async (req, res) => {
             const data = req.body;
             const assetId = data.assetId;
 
@@ -615,7 +651,7 @@ async function run() {
 
 
         //            MY ASSETS API
-        app.get("/assigned-assets", async (req, res) => {
+        app.get("/assigned-assets", verifyJWTToken, async (req, res) => {
             const { email, search, filter } = req.query;
 
             let query = { employeeEmail: email };
@@ -637,33 +673,80 @@ async function run() {
         });
 
 
-        //          GET ALL COMPANIES
-        app.get('/hr/companies', async (req, res) => {
-            try {
-                const companies = await userCollection
-                    .find({ role: "hr" })
-                    .project({ _id: 1, companyName: 1, email: 1 })
-                    .toArray();
-                res.send(companies);
-            } catch (err) {
-                console.error(err);
-                res.status(500).send({ success: false, message: "Failed to fetch companies" });
-            }
+
+        // Employee affiliated companies (for MyTeam)
+        app.get("/employee/companies", verifyJWTToken, async (req, res) => {
+            const email = req.token_email;
+
+            const companies = await affiliationCollection.find(
+                { employeeEmail: email, status: "active" },
+                { projection: { companyName: 1, companyLogo: 1, hrEmail: 1 } }
+            ).toArray();
+
+            res.send(companies);
         });
+
+
+        app.get("/employee/my-team", verifyJWTToken, async (req, res) => {
+            const employeeEmail = req.token_email;
+            const { hrEmail } = req.query;
+
+            const isAffiliated = await affiliationCollection.findOne({
+                employeeEmail,
+                hrEmail,
+                status: "active"
+            });
+
+            if (!isAffiliated) {
+                return res.status(403).send({ message: "Not affiliated with this company" });
+            }
+
+            const pipeline = [
+                {
+                    $match: {
+                        hrEmail,
+                        status: "active",
+                        employeeEmail: { $ne: employeeEmail }
+                    }
+                },
+                {
+                    $lookup: {
+                        from: "users",
+                        localField: "employeeEmail",
+                        foreignField: "email",
+                        as: "user"
+                    }
+                },
+                {
+                    $project: {
+                        name: "$employeeName",
+                        email: "$employeeEmail",
+                        photoURL: { $arrayElemAt: ["$user.photoURL", 0] },
+                        dateOfBirth: { $arrayElemAt: ["$user.dateOfBirth", 0] },
+                        position: { $arrayElemAt: ["$user.position", 0] }
+                    }
+                }
+            ];
+
+            const team = await affiliationCollection.aggregate(pipeline).toArray();
+            res.send(team);
+        });
+
+
 
 
 
         //               PAYMENT RELATED APIS
 
         //       UPGRADE PACKAGES
-        app.get('/packages', async (req, res) => {
+        app.get('/packages', verifyJWTToken, verifyHR, async (req, res) => {
             const result = await packagesCollection.find().toArray();
             res.send(result);
         })
 
 
         //            PAYMENT INTEGRATION STRIPE 
-        app.post('/hr/create-checkout-session', async (req, res) => {
+        app.post('/hr/create-checkout-session', verifyJWTToken, verifyHR, async (req, res) => {
             try {
                 const { hrEmail, packageName } = req.body;
 
@@ -708,7 +791,7 @@ async function run() {
 
 
         //              PAYMENT SUCCESS
-        app.patch('/hr/payment-success', async (req, res) => {
+        app.patch('/hr/payment-success', verifyJWTToken, async (req, res) => {
             try {
                 const sessionId = req.query.session_id;
                 const session = await stripe.checkout.sessions.retrieve(sessionId);
@@ -784,8 +867,13 @@ async function run() {
 
 
         //          PAYMENT HISTORY
-        app.get('/hr/payments', async (req, res) => {
+        app.get('/hr/payments', verifyJWTToken, verifyHR, async (req, res) => {
             const { hrEmail } = req.query;
+
+            if (hrEmail !== req.token_email) {
+                return res.status(403).send({ message: 'forbidden access' })
+            }
+
 
             const payments = await paymentsCollection
                 .find({ hrEmail })
