@@ -91,6 +91,13 @@ async function run() {
 
 
 
+        // Packages For Home
+        app.get('/packages/public', async (req, res) => {
+            const result = await packagesCollection.find().toArray();
+            res.send(result);
+        });
+
+
         //           CREATE EMPLOYEE ACCOUNT
         app.post("/register/employee", async (req, res) => {
             const data = req.body;
@@ -738,7 +745,7 @@ async function run() {
 
         //               PAYMENT RELATED APIS
 
-        //       UPGRADE PACKAGES
+        //       UPGRADE PACKAGES For HR
         app.get('/packages', verifyJWTToken, verifyHR, async (req, res) => {
             const result = await packagesCollection.find().toArray();
             res.send(result);
