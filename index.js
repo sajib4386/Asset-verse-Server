@@ -62,18 +62,11 @@ async function run() {
         const paymentsCollection = db.collection("payments");
 
         // Generate JWT
-        app.post('/getToken', async (req, res) => {
-            const { email } = req.body;
-
-            const user = await userCollection.findOne({ email });
-            if (!user) {
-                return res.status(401).send({ message: 'Invalid user' });
-            }
-
-            const token = jwt.sign({ email: user.email, role: user.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-            res.send({ token });
-        });
+        app.post('/getToken', (req, res) => {
+            const loggedUser = req.body;
+            const token = jwt.sign(loggedUser, process.env.JWT_SECRET, { expiresIn: '1h' })
+            res.send({ token: token })
+        })
 
 
         // VerifyHR
