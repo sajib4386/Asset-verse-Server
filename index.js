@@ -888,7 +888,7 @@ async function run() {
         //           SHARED PROFILE FOR (HR & EMPLOYEE)
 
         // GET USER PROFILE
-        app.get("/profile/:email", async (req, res) => {
+        app.get("/profile/:email", verifyJWTToken,async (req, res) => {
             const email = req.params.email;
 
             const user = await userCollection.findOne(
@@ -915,7 +915,7 @@ async function run() {
 
 
         // UPDATE PROFILE
-        app.patch("/profile/update", async (req, res) => {
+        app.patch("/profile/update", verifyJWTToken,async (req, res) => {
             const { email, name, photoURL, dateOfBirth } = req.body;
 
             const result = await userCollection.updateOne(
