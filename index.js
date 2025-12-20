@@ -946,6 +946,68 @@ async function run() {
         });
 
 
+        // aggregation API for HR Analytics (Pie Chart)
+        app.get("/assets/returnable-stats", verifyJWTToken, verifyHR, async (req, res) => {
+            const hrEmail = req.token_email;
+
+            const result = await assetCollection.aggregate([
+                {
+                    $match: { hrEmail }
+                },
+                {
+                    $group: {
+                        _id: "$productType",
+                        count: { $sum: 1 }
+                    }
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        type: "$_id",
+                        count: 1
+                    }
+                }
+            ]).toArray();
+
+            res.send(result);
+        });
+
+
+
+        // Top 5 Most Requested Asset (Bar Chart)
+        app.get("/assets/top-requested", verifyJWTToken, verifyHR, async (req, res) => {
+            const hrEmail = req.token_email;
+
+            const result = await requestCollection.aggregate([
+                {
+                    $match: { hrEmail }
+                },
+                {
+                    $group: {
+                        _id: "$assetName",
+                        count: { $sum: 1 }
+                    }
+                },
+                {
+                    $sort: { count: -1 }
+                },
+                {
+                    $limit: 5
+                },
+                {
+                    $project: {
+                        _id: 0,
+                        assetName: "$_id",
+                        count: 1
+                    }
+                }
+            ]).toArray();
+
+            res.send(result);
+        });
+
+
+
 
 
         // Send a ping to confirm a successful connection
