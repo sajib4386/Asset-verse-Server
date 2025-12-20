@@ -185,7 +185,10 @@ async function run() {
 
         //           ASSETLIST API
         app.get("/assets", verifyJWTToken, verifyHR, async (req, res) => {
-            const { email, search } = req.query;
+            const { email, search, page = 1, limit = 10 } = req.query;
+
+            const pageNum = parseInt(page) || 1;
+            const limitNum = parseInt(limit) || 10;
 
             let query = {};
             if (email) query.hrEmail = email;
@@ -194,12 +197,22 @@ async function run() {
                 query.productName = { $regex: search, $options: "i" };
             }
 
+            const total = await assetCollection.countDocuments(query);
+
             const result = await assetCollection
                 .find(query)
                 .sort({ createdAt: -1 })
+                .skip((pageNum - 1) * limitNum)
+                .limit(limitNum)
                 .toArray();
 
-            res.send(result);
+            res.send({
+                total,
+                page: pageNum,
+                limit: limitNum,
+                totalPages: Math.ceil(total / limitNum),
+                data: result
+            });
         });
 
 
@@ -888,7 +901,7 @@ async function run() {
         //           SHARED PROFILE FOR (HR & EMPLOYEE)
 
         // GET USER PROFILE
-        app.get("/profile/:email", verifyJWTToken,async (req, res) => {
+        app.get("/profile/:email", verifyJWTToken, async (req, res) => {
             const email = req.params.email;
 
             const user = await userCollection.findOne(
@@ -915,7 +928,7 @@ async function run() {
 
 
         // UPDATE PROFILE
-        app.patch("/profile/update", verifyJWTToken,async (req, res) => {
+        app.patch("/profile/update", verifyJWTToken, async (req, res) => {
             const { email, name, photoURL, dateOfBirth } = req.body;
 
             const result = await userCollection.updateOne(
