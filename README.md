@@ -9,7 +9,7 @@ The AssetVerse server application handles all backend logic including authentica
 ---
 
 ## Live Server
-Server URL:
+Server URL: https://asset-verse-server-ashen.vercel.app
 
 ---
 
