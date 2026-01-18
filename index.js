@@ -91,6 +91,16 @@ async function run() {
         });
 
 
+        // All Asset API for Public Route
+        app.get("/all-assets", async (req, res) => {
+            const query = {
+                availableQuantity: { $gt: 0 }
+            }
+            const result = await assetCollection.find(query).toArray();
+            res.send(result);
+        });
+
+
         //           CREATE EMPLOYEE ACCOUNT
         app.post("/register/employee", async (req, res) => {
             const data = req.body;
@@ -600,7 +610,7 @@ async function run() {
 
         //              EMPLOYEE RELATED APIS
 
-        //            AVAILABLE ASSET API 
+        //            AVAILABLE ASSET / All Asset API 
         app.get("/employee/assets", verifyJWTToken, async (req, res) => {
             const query = {
                 availableQuantity: { $gt: 0 }
