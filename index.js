@@ -142,16 +142,6 @@ async function run() {
         });
 
 
-
-        // API for Asset details page
-        app.get("/assets/:id", async (req, res) => {
-            const id = req.params.id;
-            const result = await assetCollection.findOne({ _id: new ObjectId(id) });
-            res.send(result);
-        });
-
-
-
         //           CREATE EMPLOYEE ACCOUNT
         app.post("/register/employee", async (req, res) => {
             const data = req.body;
@@ -206,6 +196,29 @@ async function run() {
 
             res.send({ success: true, user: result });
         });
+
+
+        //   Social login
+        app.post("/register/social-user", async (req, res) => {
+            const { name, email, photoURL } = req.body;
+
+
+            const existingUser = await userCollection.findOne({ email });
+            if (existingUser) {
+                return res.send({ success: true, role: existingUser.role });
+            }
+            const newUser = {
+                name,
+                email,
+                photoURL,
+                role: "employee",
+                status: "unaffiliated",
+                createdAt: new Date()
+            };
+            await userCollection.insertOne(newUser);
+            res.send({ success: true, role: newUser.role });
+        });
+
 
 
         //            ROLE API
@@ -1110,6 +1123,13 @@ async function run() {
             res.send(result);
         });
 
+
+        // API for Asset details page
+        app.get("/assets/:id", async (req, res) => {
+            const id = req.params.id;
+            const result = await assetCollection.findOne({ _id: new ObjectId(id) });
+            res.send(result);
+        });
 
 
 
