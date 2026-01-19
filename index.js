@@ -93,12 +93,54 @@ async function run() {
 
         // All Asset API for Public Route
         app.get("/all-assets", async (req, res) => {
-            const query = {
-                availableQuantity: { $gt: 0 }
+            const {
+                search = "",
+                type = "",
+                sort = "newest",
+                dateFilter = "",
+                page = 1,
+                limit = 12
+            } = req.query;
+
+            const query = { availableQuantity: { $gt: 0 } };
+
+            // Search
+            if (search) {
+                query.productName = { $regex: search, $options: "i" };
             }
-            const result = await assetCollection.find(query).toArray();
-            res.send(result);
+
+            // Filter by type
+            if (type) {
+                query.productType = type;
+            }
+
+            // Date filter
+            if (dateFilter) {
+                const daysAgo = new Date();
+                daysAgo.setDate(daysAgo.getDate() - Number(dateFilter));
+                query.createdAt = { $gte: daysAgo };
+            }
+
+            // Sort
+            let sortQuery = {};
+            if (sort === "newest") sortQuery = { createdAt: -1 };
+            if (sort === "oldest") sortQuery = { createdAt: 1 };
+
+            // Pagination
+            const skip = (page - 1) * limit;
+
+            const assets = await assetCollection
+                .find(query)
+                .sort(sortQuery)
+                .skip(skip)
+                .limit(Number(limit))
+                .toArray();
+
+            const total = await assetCollection.countDocuments(query);
+
+            res.send({ assets, total });
         });
+
 
 
         // API for Asset details page
@@ -621,12 +663,55 @@ async function run() {
 
         //            AVAILABLE ASSET / All Asset API 
         app.get("/employee/assets", verifyJWTToken, async (req, res) => {
+            const {
+                search = "",
+                type = "",
+                sort = "newest",
+                dateFilter = "",
+                page = 1,
+                limit = 12
+            } = req.query;
+
             const query = {
                 availableQuantity: { $gt: 0 }
+            };
+
+            // Search
+            if (search) {
+                query.productName = { $regex: search, $options: "i" };
             }
-            const result = await assetCollection.find(query).toArray();
-            res.send(result);
+
+            // Filter by type
+            if (type) {
+                query.productType = type;
+            }
+
+            // New Date Filter
+            if (dateFilter) {
+                const daysAgo = new Date();
+                daysAgo.setDate(daysAgo.getDate() - Number(dateFilter));
+                query.createdAt = { $gte: daysAgo };
+            }
+
+            // Sort
+            let sortQuery = {};
+            if (sort === "newest") sortQuery = { createdAt: -1 };
+            if (sort === "oldest") sortQuery = { createdAt: 1 };
+
+            const skip = (page - 1) * limit;
+
+            const assets = await assetCollection
+                .find(query)
+                .sort(sortQuery)
+                .skip(skip)
+                .limit(Number(limit))
+                .toArray();
+
+            const total = await assetCollection.countDocuments(query);
+
+            res.send({ assets, total });
         });
+
 
 
 
