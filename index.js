@@ -670,6 +670,28 @@ async function run() {
         });
 
 
+        // HR Dashboard Overview Cards
+        app.get("/hr/overview-stats", verifyJWTToken, verifyHR, async (req, res) => {
+            const hrEmail = req.token_email;
+
+            const totalAssets = await assetCollection.countDocuments({ hrEmail });
+
+            const totalRequests = await requestCollection.countDocuments({ hrEmail });
+
+            const totalEmployees = await affiliationCollection.countDocuments({
+                hrEmail,
+                status: "active"
+            });
+
+            res.send({
+                totalAssets,
+                totalRequests,
+                totalEmployees
+            });
+        });
+
+
+
 
 
         //              EMPLOYEE RELATED APIS
